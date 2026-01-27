@@ -1,269 +1,123 @@
-# Time Series Analysis (TSA) Worker
+# Time Series Analysis (TSA) Worker Documentation
 
-> ** Status: Experimental**
-> This codebase contains temporary implementations and workarounds intended to validate the architecture. It is not yet optimized for production use.
+## 1. Project Overview
 
-## Architectural Concept
+The **TSA Worker** is an asynchronous microservice designed to perform automated time series forecasting. It operates as a stateless consumer that listens for jobs via **RabbitMQ**, processes datasets using **ARIMA/SARIMAX** models, logs experiments to **MLflow**, and stores results in **S3 (MinIO)** and **Redis**.
 
-The worker is designed to be stateless. It does not rely on local persistent data but fetches versioned datasets from an S3 cache based on instructions from a job scheduler.
+**Key Features:**
+
+* **Automated Pipeline:** Handles data loading, preprocessing, baseline comparison, and advanced modeling.
+* **AutoML Capabilities:** Automatically detects stationarity (), seasonality (), and optimal ARIMA orders .
+* **Experiment Tracking:** Full integration with MLflow for metrics, parameters, and artifact storage.
+* **Stateless Architecture:** Uses DVC(doesn\`t work for mvp right now) and S3 to fetch data on demand, ensuring reproducibility.
+
+---
+
+## 2. System Architecture
+
+The worker fits into the broader **SKU ML Service** ecosystem.
 
 **Data Flow:**
-1.  **Ingestion:** Raw data is uploaded to S3 (User space).
-2.  **Versioning:** Data is registered in DVC -> moved to DVC S3 Cache -> Raw data is discarded.
-3.  **Execution:** Worker pulls specific data version (Hash) -> Trains Model -> Logs to MLflow.
 
-## Features (Implemented)
-
-* **DVC Integration:** Automated registration of datasets and configuration files.
-* **MLflow Tracking:** Logging of metrics, parameters, and artifacts (plots/configs).
-* **Dockerized Backends:** MinIO (Object Storage) and PostgreSQL (Metadata Store).
-* **Simulation Scripts:** Bash and Python scripts to emulate the Backend <-> Worker lifecycle.
-
-## Project Structure
-
-```text
-tsa/
-├── configs/             # Configuration templates
-├── data/                # Local source data (for simulation only)
-├── scripts/             # Backend simulation scripts (Upload/Register)
-├── src/                 # Application source code
-├── docker-compose.yaml  # Infrastructure (MinIO, Postgres)
-├── dvc_init.sh          # Init script + Starts MLflow Server locally
-├── main.py              # Worker entry point
-├── run.sh               # Full pipeline simulation
-└── requirements.txt     # Python dependencies
-
-```
-
-## Environment Setup
-
-### 1. Prerequisites
-
-* Python 3.10+
-* Docker & Docker Compose
-* Git
-
-### 2. Virtual Environment
-
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-```
-
-### 3. Infrastructure
-
-Start the storage and database containers:
-
-```bash
-docker-compose up -d
-
-```
-
-*Note: This starts MinIO (S3) and PostgreSQL. It does NOT start the MLflow server container.*
-
-### 4. Initialization
-
-Run the initialization script. This initializes Git/DVC, configures remotes, and **starts the MLflow server locally**:
-
-```bash
-./dvc_init.sh
-
-```
-
-## Usage / Simulation
-
-The `run.sh` script simulates the entire lifecycle of a job coming from a backend:
-
-```bash
-./run.sh
-
-```
-
-**What happens inside `run.sh`:**
-
-1. **Backend Upload:** Pushes local CSVs to `s3://wandb-data/{user}/raw/`.
-2. **Registration:**
-* Downloads raw data.
-* Calculates DVC hashes.
-* Pushes data to `s3://wandb-data/{user}/dvc_storage/`.
-
-
+1. **Job Ingestion:** The worker receives a JSON payload from RabbitMQ .
+2. **Data Fetching:** Downloads the raw dataset (`.csv`, 0 column date and 1 column value) and configuration (`.yaml`) from S3.
 3. **Training:**
-* Executes `main.py` with the calculated hashes.
-* Worker pulls data from DVC storage.
-* Logs results to MLflow.
+* Runs **Baseline Models** (Simple Naive, Seasonal Naive).
+* Runs **AutoARIMA** to find the best hyperparameters.
+* Generates forecasts and confidence intervals (Fan Charts).
 
 
-
-## Accessing Services
-
-* **MLflow UI:** [http://localhost:5001](https://www.google.com/search?q=http://localhost:5001)
-* View experiment runs and artifacts.
-
-
-* **MinIO Console:** [http://localhost:9001](https://www.google.com/search?q=http://localhost:9001)
-* **User:** `minioadmin` | **Pass:** `minioadmin`
-* Check `wandb-data` bucket to see how data is organized between `/raw` and `/dvc_storage`.
-
-
-## Known Limitations & "Crutches"
-
-* **Local MLflow:** MLflow runs as a background process on the host machine, not in Docker.
-* **Sync Processing:** The worker processes jobs synchronously.
-* **Data Duplication:** The simulation currently downloads raw data to a temp folder before hashing it (due to DVC limitations with remote-only add).
-
-
-
-# SKU ML Service
-
-Data processing and forecasting microservice for the "SKU" sales forecasting system.
-Built on **FastAPI**.
-
-## Features
-
-* **JWT Authorization:** Issuance of Access tokens.
-* **Data Processing:** Ability to upload a `.csv` or `.xlsl` file with sales information.
-* **Data Visualization:** Service can return history data for analize
-* **Forcasting:** Job creation for workers to process information and make sales predictions
-* **Architecture:** Strict layer separation: `Router` -> `Service` -> `Repository` -> `Database`.
-* **Async Database:** Fully asynchronous PostgreSQL interaction via `SQLAlchemy 2.0` + `asyncpg`.
+4. **Artifact Logging:** Saves forecasts, plots, models, and metrics to MLflow and S3.
+5. **Status Update:** Updates the job status and result paths in Redis.
 
 ---
 
-## Tech Stack
+## 3. Setup & Installation
 
-* **Python:** 3.12+
-* **Framework:** FastAPI
-* **DB:** PostgreSQL, MinIO
-* **ORM:** SQLAlchemy (Async)
-* **Migrations:** Alembic
-* **Data Processing:** Pandas
-* **Validation:** Pydantic v2
-* **Message Brokers:**: Redis, RabbitMQ
+### Prerequisites
+
+* Docker & Docker Compose
+* Python 3.12+ (for local development)
+
+### Environment Variables
+
+The service requires the following environment variables (defined in `.env` or `docker-compose.yaml`):
+
+```{.env}
+# --- MinIO / S3 Config ---
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+# For boto3
+S3_ENDPOINT_URL=http://localhost:9000
+S3_BUCKET_NAME=ml-data
+
+# -- RabbitMQ, Redis ---
+RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+REDIS_URL=redis://redis:6379/0
+JOB_QUEUE_NAME=job_queue
+
+# --- MLflow ---
+MLFLOW_TRACKING_URI=http://localhost:5001
+MLFLOW_S3_ENDPOINT_URL=http://localhost:9000
+```
+
+### Running with Docker
+
+To start the full stack (including DB, MinIO, MLflow, and the Worker):
+
+```bash
+docker-compose up --build -d
+```
 
 ---
 
-## Project Structure
+## 4. Configuration Guide (`config.yaml`)
 
-The project implements a layered architecture:
+The behavior of the ML pipeline is controlled by a YAML configuration file passed with the job.
+
+**Structure:**
+
+```yaml
+random_seed: 42
+system_settings: # dont change anything here
+  local_temp_dir: temp_processing
+  s3:
+    bucket_name: ml-data
+    raw_folder: raw
+    config_folder: configs
+    dvc_folder: dvc_storage
+    experiments_folder: experiments
+  visualization:
+    show_plots: false
+    save_plots: true
+    output_dir: ./output_plots/
+user_parameters: # here you can change only values
+  data:
+    # Frequency: "D" (Day), "MS" (Month Start), "H" (Hour)
+    frequency: D
+    steps: 14 # forecast (e.g. 14 days, months, years, hours, depends on frequency)
+  model:
+    type: arima
+    seasonality: 7
+```
+
+---
+
+## 5. Project Structure
 
 ```text
-auth_service/
-├── alembic/versions     # Database migrations
-├── src/
-│   ├── core/            # security
-│   ├── db/              # DB connection and SQLAlchemy models
-│   ├── repositories/    # Database interactions (CRUD without business logic)
-│   ├── services/        # Business logic (validation, hashing, decision making)
-│   ├── routers/         # API Endpoints (Controller layer)
-│   ├── utils/           # Utilities for data processing
-│   ├── schemas.py       # Pydantic models (DTOs) for Request/Response
-│   ├── dependencies.py  # Dependency Injection (layer wiring)
-│   ├── config.py        # Environment variable management
-│   └── main.py          # Entrypoint
-├── requirements.txt     # Dependencies
-├── entrypoint.sh        # Runs migrations before starting server. For Docker
-└── Dockerfile
+src/
+├── main.py                 # Pipeline entry point (Config loading -> Training)
+├── worker.py               # RabbitMQ consumer & Job processor
+├── models/
+│   ├── arima_runner.py     # AutoARIMA logic, Grid Search, and Forecasting
+│   ├── baseline_runner.py  # Naive and Seasonal Naive baselines
+│   └── batch_runner.py     # Logic for batch parameter testing
+├── utils/
+│   ├── data_manager.py     # DVC data loading & preprocessing
+│   ├── mlflow_manager.py   # Wrapper for MLflow logging
+│   └── metrics.py          # Calculation of RMSE, MAE, MAPE, SMAPE
+└── visualization/
+    └── plots.py            # Matplotlib generation for Fan Charts & Scatter plots
+
 ```
-
-##  **Setup and Execution**
-1. Prerequisites
-* **Docker** and **docker-compose** installed
-* Python 3.12+
-* Generated RSA keys in `../common` folder
-
-2. RSA key generation
-The service uses asymmetric encryption for JWTs. Create a `common` folder one level above the service directory and generate the keys:
-```bash
-mkdir -p ../common
-cd ../common
-openssl genrsa -out jwt-private.pem 2048
-openssl rsa -in jwt-private.pem -outform PEM -pubout -out jwt-public.pem
-```
-
-3. Environment Variables (.env)
-Create a .env file in the root of the auth_service folder. Configuration example:
-```TOML
-# DATABASE
-DB_USER=""
-DB_PASSWORD=""
-DB_HOST=""
-DB_PORT=
-DB_NAME=""
-
-# MINIO
-MINIO_ENDPOINT=""
-MINIO_ACCESS_KEY=""
-MINIO_SECRET_KEY=""
-MINIO_BUCKET=""
-MINIO_SECURE=False
-
-# MESSAGE BROKERS
-REDIS_URL = ""
-RABBITMQ_URL = ""
-JOB_QUEUE_NAME = ""
-
-# AUTHORIZATION
-AUTH_SERVICE_URL = ""
-PUBLIC_KEY_PATH = ""
-ALGORITHM = ""
-
-# LOGS FORMAT - JSON
-JSON_LOGS = bool
-```
-
-4. API documentation
-FastAPI automatically generates documentation. Once the server is running, visit:
-* **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-* **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-
-## **Key Endpoints**
-
-**Ingestion**
- * `POST /ingestion/upload` - Upload `.csv` or `.xlsx` file to process.
- * `GET /ingestion/datasets` - Get list of all uploaded datasets.
- * `POST /ingestion/set_dataset_config` - Set(create/update) dataset configuration for processing
- * `GET /ingestion/get_dataset_config` - Get current dataset configuration
-
-**SKU**
- * `GET /skus/` - Get list of all uploaded SKUs.
-
-**History**
- * `GET /history/{article}` - Get history data of certain SKU.
-
-**Forecast**
- * `POST /forecast/calculate` - Calculate forecast for certain SKU.
- * `GET /forecast/status/{job_id}` - Get status of certain forecasting job.
- * `GET /forecast/get_all_jobs` - Get list of job history (ongoing jobs are included)
- * `GET /forecast/analytics/{article}` - Get history + forecast timeline for article (optionally is available to add job_id to check certain job forecast history)
-
-**Admin**
-
- * `GET /admin/datasets` – Get list of all datasets (all users).
- * `DELETE /admin/datasets/{dataset_id}` – Delete dataset by ID.
-
- * `GET /admin/jobs` – Get list of all forecasting jobs (all users).
- * `GET /admin/jobs/{job_id}/analytics` – Get full analytics for a specific job (history + forecast + metrics).
-
- * `GET /admin/users/{user_id}/skus` – Get all SKUs of a specific user.
- * `GET /admin/users/{user_id}/skus/{article}/history` – Get sales history for a specific user SKU.
-
-**Statistic**
- * `GET /ingestion/get_dataset_config` - Get dashboard with forecasts and leaderboard
- * `GET /statistic/forecasts_analysis/` - Get history of forecast jobs with additional information
- * `GET /statistic/get_accuracy_evaluation` - Get analytics after update of existing dataset, only if dataset was processed with old data, and hasn't been processed with new(INACTIVE IN FRONTEND)
-
-
-
-## **Migrations (Alembic)**
-If you modify models in `src/db/models.py`, create a new migration:
-```bash
-alembic revision --autogenerate -m "Description of changes"
-alembic upgrade head
-
-# In case of docker(docker-compose) run, migrations will be completed automatically via entrypoint.sh (migrations must be in ml_service/alembic/versions folder)
-```
-
-## **Important Notes**
