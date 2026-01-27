@@ -1,0 +1,21 @@
+random_seed: 42
+system_settings: # dont change anything here
+  local_temp_dir: temp_processing
+  s3:
+    bucket_name: ml-data
+    raw_folder: raw
+    config_folder: configs
+    dvc_folder: dvc_storage
+    experiments_folder: experiments
+  visualization:
+    show_plots: false
+    save_plots: true
+    output_dir: ./output_plots/
+user_parameters: # here you can change only values
+  data:
+    # Frequency: "D" (Day), "MS" (Month Start), "H" (Hour)
+    frequency: D
+    steps: 14 # forecast (e.g. 14 days, months, years, hours, depends on frequency)
+  model:
+    type: arima
+    seasonality: 7

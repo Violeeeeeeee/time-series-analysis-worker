@@ -1,0 +1,16 @@
+# .dockerignore
+.git/
+.dvc/
+.env
+venv/
+.venv/
+__pycache__
+*.pyc
+.ipynb_checkpoints
+output_plots/
+temp_processing/
+data/
+experiments/
+mlruns/
+results.json
+error.log
