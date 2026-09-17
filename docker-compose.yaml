@@ -118,8 +118,6 @@ services:
       - mlflow
       - minio
       - ml_db
-      # Потрібен RabbitMQ (додай сервіс rabbitmq в docker-compose, якщо його там ще немає,
-      # або переконайся, що ml_service піднімає його)
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - REDIS_URL=redis://redis:6379

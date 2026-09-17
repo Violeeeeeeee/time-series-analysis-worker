@@ -1,49 +1,65 @@
-# Time Series Analysis (TSA) Worker Documentation
+# Time Series Analysis Worker
 
-## 1. Project Overview
+## Overview
 
-The **TSA Worker** is an asynchronous microservice designed to perform automated time series forecasting. It operates as a stateless consumer that listens for jobs via **RabbitMQ**, processes datasets using **ARIMA/SARIMAX** models, logs experiments to **MLflow**, and stores results in **S3 (MinIO)** and **Redis**.
+My attempt to build a fully automatic time series analysis pipeline, handling everything from minimally preprocessed datasets to final predictions without human intervention.
 
-**Key Features:**
+## Approach
 
-* **Automated Pipeline:** Handles data loading, preprocessing, baseline comparison, and advanced modeling.
-* **AutoML Capabilities:** Automatically detects stationarity (), seasonality (), and optimal ARIMA orders .
-* **Experiment Tracking:** Full integration with MLflow for metrics, parameters, and artifact storage.
-* **Stateless Architecture:** Uses DVC(doesn\`t work for mvp right now) and S3 to fetch data on demand, ensuring reproducibility.
+This worker is designed as a plug-in component for an existing broader architecture. To simulate integration with the main system, it implements dummy communication channels using RabbitMQ and Redis.
 
----
+**Data Assumptions:** The pipeline assumes the input data is already minimally preprocessed (a clean CSV with `yyyy-mm-dd` dates, integer values, and no `Null` or `NaN` entries).
 
-## 2. System Architecture
+**Forecasting Models:** This project utilizes the ARIMA family of statistical models. The rationale is straightforward: if a dataset is of such low quality that even ARIMA yields weak results, there is no value in applying complex models like XGBoost or LightGBM. In such scenarios, it is sufficient to fall back on Naive forecasting (which is computationally free, as it simply shifts data), or the data collection approach itself must be re-evaluated.
 
-The worker fits into the broader **SKU ML Service** ecosystem.
+## Project Structure
 
-**Data Flow:**
+```text
+time-series-analysis-worker/
+├── run.sh                  # Main execution script for local environments
+├── clear.sh                # Clear output files
+├── dvc_init_local.sh       # DVC initialization for local setup
+├── dvc_init_docker.sh      # DVC initialization for Docker setup
+├── docker-compose.yaml     # Container orchestration
+├── src/
+│   ├── main.py             # Pipeline entry point (Config loading -> Training)
+│   ├── worker.py           # RabbitMQ consumer & Job processor
+│   ├── models/
+│   │   ├── arima_runner.py     # AutoARIMA logic, Grid Search, and Forecasting
+│   │   ├── baseline_runner.py  # Naive and Seasonal Naive baselines
+│   │   └── batch_runner.py     # Logic for batch parameter testing
+│   ├── utils/
+│   │   ├── data_manager.py     # DVC data loading & preprocessing
+│   │   ├── mlflow_manager.py   # Wrapper for MLflow logging
+│   │   └── metrics.py          # Calculation of RMSE, MAE, MAPE, SMAPE
+│   └── visualization/
+│       └── plots.py            # Matplotlib generation for Fan Charts & Scatter plots
+└── scripts/
+    ├── convertcsv.py       # Utility to convert/format raw CSV data
+    ├── register_data.py    # Script to register new datasets with DVC
+    └── s3pushfile.py       # Utility to upload files directly to MinIO/S3
 
-1. **Job Ingestion:** The worker receives a JSON payload from RabbitMQ .
-2. **Data Fetching:** Downloads the raw dataset (`.csv`, 0 column date and 1 column value) and configuration (`.yaml`) from S3.
-3. **Training:**
-* Runs **Baseline Models** (Simple Naive, Seasonal Naive).
-* Runs **AutoARIMA** to find the best hyperparameters.
-* Generates forecasts and confidence intervals (Fan Charts).
+```
 
+## Tech Stack
 
-4. **Artifact Logging:** Saves forecasts, plots, models, and metrics to MLflow and S3.
-5. **Status Update:** Updates the job status and result paths in Redis.
+* **Modeling:** Python, ARIMA/SARIMAX, Naive Models
+* **MLOps & Tracking:** MLflow, DVC
+* **Integration (Message Broker & Cache):** RabbitMQ, Redis
+* **Infrastructure:** Docker, Docker Compose, Bash (`run.sh`)
 
----
-
-## 3. Setup & Installation
+## Setup & Installation
 
 ### Prerequisites
 
 * Docker & Docker Compose
-* Python 3.12+ (for local development)
+* Python 3.12 (for local development)
 
 ### Environment Variables
 
-The service requires the following environment variables (defined in `.env` or `docker-compose.yaml`):
+The service requires the following environment variables (defined in a `.env` file or `docker-compose.yaml`):
 
-```{.env}
+```env
 # --- MinIO / S3 Config ---
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
@@ -59,19 +75,54 @@ JOB_QUEUE_NAME=job_queue
 # --- MLflow ---
 MLFLOW_TRACKING_URI=http://localhost:5001
 MLFLOW_S3_ENDPOINT_URL=http://localhost:9000
+
 ```
 
-### Running with Docker
+### Preparation
 
-To start the full stack (including DB, MinIO, MLflow, and the Worker):
+First, clone the repository, prepare your environment variables by configuring the tsa.env file, and ensure all bash scripts are executable:
 
 ```bash
-docker-compose up --build -d
+git clone https://github.com/Violeeeeeeee/time-series-analysis-worker.git
+cd time-series-analysis-worker
+chmod +x *.sh
 ```
 
----
+### Option 1: Running with Docker (Recommended)
 
-## 4. Configuration Guide (`config.yaml`)
+To start the full stack (including DB, MinIO, MLflow, Redis, RabbitMQ, and the Worker):
+
+```bash
+./dvc_init_docker.sh
+docker-compose up --build -d
+
+```
+
+### Option 2: Conda (Local Execution)
+
+For local execution, you will need local instances of Redis and RabbitMQ running to test the communication layer. The execution is handled entirely by the `run.sh` script.
+
+```bash
+conda create -n tsa-worker python=3.10
+conda activate tsa-worker
+pip install -r requirements.txt
+./dvc_init_local.sh
+./run.sh
+
+```
+
+### Option 3: Pip / Virtualenv (Local Execution)
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+./dvc_init_local.sh
+./run.sh
+
+```
+
+## Configuration Guide (`config.yaml`)
 
 The behavior of the ML pipeline is controlled by a YAML configuration file passed with the job.
 
@@ -99,25 +150,5 @@ user_parameters: # here you can change only values
   model:
     type: arima
     seasonality: 7
-```
-
----
-
-## 5. Project Structure
-
-```text
-src/
-├── main.py                 # Pipeline entry point (Config loading -> Training)
-├── worker.py               # RabbitMQ consumer & Job processor
-├── models/
-│   ├── arima_runner.py     # AutoARIMA logic, Grid Search, and Forecasting
-│   ├── baseline_runner.py  # Naive and Seasonal Naive baselines
-│   └── batch_runner.py     # Logic for batch parameter testing
-├── utils/
-│   ├── data_manager.py     # DVC data loading & preprocessing
-│   ├── mlflow_manager.py   # Wrapper for MLflow logging
-│   └── metrics.py          # Calculation of RMSE, MAE, MAPE, SMAPE
-└── visualization/
-    └── plots.py            # Matplotlib generation for Fan Charts & Scatter plots
 
 ```
