@@ -83,15 +83,13 @@ class AutoARIMAFinder:
         D = 0
         if m_candidate <= 52 and m_candidate > 1:
             try:
-                # Docsb = pm.arima.nsdiffs(series, m=m_candidate, test='ocsb')
                 D = pm.arima.nsdiffs(series, m=m_candidate, test='ocsb')
                 # Dch = pm.arima.nsdiffs(series, m=m_candidate, test='ch')
             except Exception:
                 pass
-
-        # print(f"Structure Detected: d={d}, m={m_candidate}, D ocsb={Docsb}, D ch={Dch}")
-        print(f"Structure Detected: d={d}, m={m_candidate}, D={D}")
-        return {'d': d, 'D': D, 'm': m_candidate if m_candidate <= 52 and m_candidate > 1 else 0}
+        final_m = m_candidate if m_candidate <= 52 and m_candidate > 1 else 0
+        print(f"Structure Detected: d={d}, m={final_m} (raw candidate: {m_candidate}), D={D}")
+        return {'d': d, 'D': D, 'm': final_m}
 
     def _heuristic_search(self, series: pd.Series, structure: dict) -> tuple:
         print("--- Running Fast Heuristic Search ---")

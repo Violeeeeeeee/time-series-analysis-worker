@@ -1,0 +1,8 @@
+[core]
+    remote = user_remote
+['remote "user_remote"']
+    url = s3://ml-data/dvc_storage
+    endpointurl = http://minio:9000
+    access_key_id = minioadmin
+    secret_access_key = minioadmin
+    use_ssl = false

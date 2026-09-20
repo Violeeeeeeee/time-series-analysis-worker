@@ -116,6 +116,7 @@ def main() -> None:
         result = run_pipeline(
             dataset_path=args.dataset_path,
             config_path=args.config_path,
+            config_filename=os.path.basename(args.config_path),
             job_id=args.job_id,
             user_id=args.user_id,
             dvc_hash=args.dvc_hash,

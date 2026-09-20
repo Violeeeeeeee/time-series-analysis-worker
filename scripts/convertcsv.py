@@ -24,10 +24,26 @@ def transform_timeseries(
     category: str,
     multiplicity: int = 1,
 ):
+    """
+    Transform a time series CSV into a formatted sales CSV.
+
+    :param input_path: Path to the input CSV file
+    :type input_path: str
+    :param output_path: Path to the output CSV file
+    :type output_path: str
+    :param nomenclature: Nomenclature name
+    :type nomenclature: str
+    :param category: Item category
+    :type category: str
+    :param multiplicity: Multiplicity value, defaults to 1
+    :type multiplicity: int
+    :return: None
+    :rtype: None
+    """
     df = pd.read_csv(input_path)
 
     if df.shape[1] != 2:
-        raise ValueError("Файл має містити рівно 2 колонки: дата та значення")
+        raise ValueError("File must contain exactly 2 columns: date and value")
 
     date_col, value_col = df.columns
 
@@ -39,15 +55,15 @@ def transform_timeseries(
     code = generate_numeric_code(nomenclature)
 
     header = (
-        ["", "Код", "Категорія", "", "Номенклатура, Базова одиниця виміру"]
+        ["", "Code", "Category", "", "Nomenclature, Base unit of measurement"]
         + date_columns
-        + ["Підсумок"]
+        + ["Total"]
     )
 
     service_row = (
-        ["", "", "", "Кратність", "Контрагент"]
-        + ["Кількість"] * len(date_columns)
-        + ["Кількість"]
+        ["", "", "", "Multiplicity", "Counterparty"]
+        + ["Quantity"] * len(date_columns)
+        + ["Quantity"]
     )
 
     values = df[value_col].fillna(0).tolist()
@@ -58,21 +74,21 @@ def transform_timeseries(
     out_df = pd.DataFrame([service_row, data_row], columns=header)
 
     out_df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    print(f"✔ Файл збережено: {output_path}")
+    print(f"✔ File saved: {output_path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Конвертація часового ряду у формат продажів"
+        description="Conversion of a time series into sales format"
     )
-    parser.add_argument("--i", help="Шлях до вхідного CSV")
-    parser.add_argument("--o", help="Шлях до вихідного CSV")
+    parser.add_argument("--input", help="Path to input CSV")
+    parser.add_argument("--output", help="Path to output CSV")
     parser.add_argument(
-        "--nomenclature", default=str(uuid4()), help="Назва номенклатури"
+        "--nomenclature", default=str(uuid4()), help="Nomenclature name"
     )
-    parser.add_argument("--category", default=str(uuid4()), help="Категорія")
+    parser.add_argument("--category", default=str(uuid4()), help="Category")
     parser.add_argument(
-        "--multiplicity", type=int, default=1, help="Кратність (default=1)"
+        "--multiplicity", type=int, default=1, help="Multiplicity (default=1)"
     )
 
     args = parser.parse_args()
