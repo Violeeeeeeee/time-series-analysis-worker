@@ -1,5 +1,5 @@
 services:
-  # --- 1. POSTGRES (Database) ---
+  # --- POSTGRES ---
   ml_db:
     image: postgres:15-alpine
     container_name: ml_db_container
@@ -14,7 +14,43 @@ services:
     networks:
       - ml_network
 
-  # --- 2. MINIO (S3 Storage) ---
+  # --- Redis ---
+  redis:
+    image: redis:6-alpine
+    container_name: redis_container
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ml_network
+
+  # --- RabbitMQ ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_container
+    ports:
+      - "5672:5672"   # Applicaton listener
+      - "15672:15672" # Web-interface
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ml_network
+
+  # --- MINIO ---
   minio:
     image: minio/minio:latest
     hostname: minio
@@ -36,7 +72,7 @@ services:
     networks:
       - ml_network
 
-  # --- 3. CREATE BUCKET (Helper) ---
+  # --- CREATE BUCKET ---
   create-bucket:
     image: minio/mc
     depends_on:
@@ -54,7 +90,7 @@ services:
       exit 0;
       "
 
-  # --- 4. MLFLOW SERVER ---
+  # --- MLFLOW SERVER ---
   mlflow:
     build:
       context: .
@@ -79,7 +115,7 @@ services:
     networks:
       - ml_network
 
-  # --- 5. ML PIPELINE ---
+  # --- ML PIPELINE ---
   pipeline:
     build:
       context: .
@@ -108,18 +144,23 @@ services:
       - ml_network
     command: tail -f /dev/null
 
-  # --- 6. TSA WORKER (Listens to RabbitMQ) ---
+  # --- TSA WORKER (Listens to RabbitMQ) ---
   tsa-worker:
     build:
-      context: ./tsa
+      context: .
       dockerfile: Dockerfile
     container_name: tsa_worker_container
     depends_on:
-      - mlflow
-      - minio
-      - ml_db
-      # Потрібен RabbitMQ (додай сервіс rabbitmq в docker-compose, якщо його там ще немає,
-      # або переконайся, що ml_service піднімає його)
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      ml_db:
+        condition: service_started
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - REDIS_URL=redis://redis:6379
@@ -132,11 +173,14 @@ services:
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
     networks:
       - ml_network
-    command: python src/worker/worker.py
+    command: python src/worker.py
 
 volumes:
   ml_db_data:
   minio-data:
+  redis_data:
+  rabbitmq_data:
+
 
 networks:
   ml_network:
